@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "MUTANT_ZOO"           # this is the name on pip/PyPI
+version = "0.0.1"
+description = "Keep Track of Your Mutants!"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "eshrimpt@ed.ac.uk"}
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+dependencies = [
+    "pyyaml",
+    "pdbutils",
+    "pandas",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/mutant-zoo"
+Repository = "https://github.com/yourusername/mutant-zoo"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black",
+    "ruff",
+]
+
+# This makes `import mutant_zoo` work correctly
+[tool.setuptools.packages.find]
+where = ["."]
+
+# If you keep everything in src/ layout, use this instead:
+# [tool.setuptools.packages.find]
+# where = ["src"]
