@@ -1,10 +1,12 @@
 # mutant_zoo.py
 import os
+from os import path as p
 import random
 import itertools
 from typing import Dict, List, Optional, Set
 import datetime
 import yaml
+from shutil import copy
 
 
 from typing import Callable
@@ -15,9 +17,10 @@ class MutantZoo:
         
         if zooYaml:
             self.load_class_state(zooYaml)
+            return
         else:
             self.DESIGN_ROUNDS: List['DesignRound'] = []
-            self.GLOBAL_METADATA: Dict = {}
+            self.NOTES: Dict = {}
             self.MUTANT_NAMES: Set[str] = set()
 
         self.TIMESTAMP = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
@@ -29,27 +32,29 @@ class MutantZoo:
     def new_design_round(
         self,
         roundName: str,
-        roundMetaData: Optional[Dict] = None,
+        notes: Optional[Dict] = {},
         inputMode: str = "pdbDir",
         inputDir: Optional[str] = None,
-        inputFile: Optional[str] = None
+        inputFile: Optional[str] = None,
+        sharedParent: Optional[str] = None
     ) -> 'DesignRound':
         """
         Create a new design round and register it in the zoo.
         Returns the newly created DesignRound instance.
         """
         # Lazy import to break circular dependency
-        from design_round import DesignRound
+        from .design_round import DesignRound
 
         print(f"Creating new design round: {roundName}")
         
         designRound = DesignRound(
             zoo=self,
             roundName=roundName,
-            roundMetaData=roundMetaData or {},
+            notes=notes or {},
             inputMode=inputMode,
             inputDir=inputDir,
             inputFile=inputFile,
+            sharedParent=sharedParent
         )
         
         self.DESIGN_ROUNDS.append(designRound)
@@ -58,9 +63,16 @@ class MutantZoo:
 
     def get_round_by_name(self, roundName: str) -> 'DesignRound':
         for round in self.DESIGN_ROUNDS:
-            if round.ROUND_NAME == roundName:
+            if round.NAME == roundName:
                 return round
         raise ValueError(f"Round {roundName} not found in mutant zoo")
+    
+    def get_mutant_by_name(self, mutantName: str) -> 'Mutant':
+        for round in self.DESIGN_ROUNDS:
+            if mutantName in round.MUTANTS:
+                return round.MUTANTS[mutantName]
+            
+        return None
 
     def generate_mutant_name(self) -> str:
         """
@@ -102,13 +114,15 @@ class MutantZoo:
         Saves the non-callable attributes of the class instance to a YAML file.
         """
         stateToSave = {}
-        stateToSave["GLOBAL_METADATA"] = self.GLOBAL_METADATA
-        stateToSave["MUTANT_NAMES"] = list(self.MUTANT_NAMES)
-        stateToSave["SEED"] = self.SEED
-        stateToSave["DESIGN_ROUNDS"] = []
+        stateToSave["notes"] = self.NOTES
+        stateToSave["mutant_names"] = list(self.MUTANT_NAMES)
+        stateToSave["seed"] = self.SEED
+        stateToSave["design_rounds"] = []
 
         for designRound in self.DESIGN_ROUNDS:
-            stateToSave["DESIGN_ROUNDS"].append(designRound.to_dict())
+            stateToSave["design_rounds"].append(designRound.to_dict())
+            
+        yaml.Dumper.ignore_aliases = lambda *args : True
 
         with open(zooYaml, "w") as f:
             yaml.dump(stateToSave, f)
@@ -117,19 +131,19 @@ class MutantZoo:
         with open(zooYaml, "r") as f:
             state = yaml.safe_load(f)
        
-        self.GLOBAL_METADATA = state["GLOBAL_METADATA"]
-        self.MUTANT_NAMES = set(state["MUTANT_NAMES"])
-        self.SEED = state["SEED"]
+        self.NOTES = state["notes"]
+        self.MUTANT_NAMES = set(state["mutant_names"])
+        self.SEED = state["seed"]
         self.DESIGN_ROUNDS = []
         # Lazy import to break circular dependency
-        from design_round import DesignRound
-        from mutant import Mutant
+        from .design_round import DesignRound
+        from .mutant import Mutant
 
-        for designRoundState in state["DESIGN_ROUNDS"]:
+        for designRoundState in state["design_rounds"]:
             designRound = DesignRound(
                 zoo=self,
-                roundName=designRoundState["round_name"],
-                roundMetaData=designRoundState["round_metadata"],
+                roundName=designRoundState["name"],
+                notes=designRoundState["notes"],
                 inputMode=designRoundState["input_mode"],
                 inputDir=designRoundState["input_dir"],
                 inputFile=designRoundState["input_file"],
@@ -139,6 +153,32 @@ class MutantZoo:
                 mutant = Mutant(name=mutantName)
                 mutant.SEQUENCE = mutantState["sequence"]
                 mutant.STRUCTURE = mutantState["structure"]
-                mutant.PARENT = mutantState["parent"]
+                mutant.PARENT = mutantState.get("parent", None)
+                mutant.NOTES = mutantState.get("notes", {})
                 designRound.MUTANTS[mutantName] = mutant
             self.DESIGN_ROUNDS.append(designRound)
+
+
+    def migrate(self, outDir):
+        os.makedirs(outDir, exist_ok=True)
+        for designRound in self.DESIGN_ROUNDS:
+            roundDir = os.path.join(outDir, designRound.NAME)
+            os.makedirs(roundDir, exist_ok=True)
+            for mutantName, mutant in designRound.MUTANTS.items():
+                if mutant.STRUCTURE:
+                    structureDest = p.join(roundDir, f"{mutantName}.pdb")
+                    copy(mutant.STRUCTURE, structureDest)
+                    mutant.STRUCTURE = structureDest
+                elif mutant.SEQUENCE:
+                    outFasta = os.path.join(roundDir, f"{mutantName}.fasta")
+                    mutant.write_fastas(outFasta)  
+                elif len(mutant.FILES) > 0:
+                    for fileTag, filePath in mutant.FILES.items():
+                        if " " in fileTag:
+                            fileTag = fileTag.replace(" ", "_")
+                        fileExt = p.splitext(filePath)[1]
+                        fileDest = p.join(roundDir, f"{fileTag}_{mutantName}{fileExt}")
+                        copy(filePath, fileDest)
+                        mutant.FILES[fileTag] = fileDest
+
+        self.save_class_state(p.join(outDir, "zoo.yaml"))
