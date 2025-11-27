@@ -16,7 +16,8 @@ class Mutant:
             "sequence": self.SEQUENCE,
             "structure": self.STRUCTURE,
             "parent": self.PARENT,
-            "notes": self.NOTES
+            "notes": self.NOTES,
+            "files": self.FILES,
         }
     
     def write_fastas(self, outFasta):

@@ -22,6 +22,8 @@ class MutantZoo:
             self.DESIGN_ROUNDS: List['DesignRound'] = []
             self.NOTES: Dict = {}
             self.MUTANT_NAMES: Set[str] = set()
+            self.TOP_DIR = None
+            self.RELATIVE_PATHS = False
 
         self.TIMESTAMP = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
 
@@ -118,6 +120,8 @@ class MutantZoo:
         stateToSave["mutant_names"] = list(self.MUTANT_NAMES)
         stateToSave["seed"] = self.SEED
         stateToSave["design_rounds"] = []
+        stateToSave["relative_paths"] = self.RELATIVE_PATHS
+        stateToSave["top_dir"] = self.TOP_DIR
 
         for designRound in self.DESIGN_ROUNDS:
             stateToSave["design_rounds"].append(designRound.to_dict())
@@ -135,6 +139,13 @@ class MutantZoo:
         self.MUTANT_NAMES = set(state["mutant_names"])
         self.SEED = state["seed"]
         self.DESIGN_ROUNDS = []
+        self.RELATIVE_PATHS = state["relative_paths"]
+        if self.RELATIVE_PATHS:
+            self.TOP_DIR = p.dirname(zooYaml)
+        else:
+            self.TOP_DIR = state.get("top_dir", None)
+        
+
         # Lazy import to break circular dependency
         from .design_round import DesignRound
         from .mutant import Mutant
@@ -155,11 +166,25 @@ class MutantZoo:
                 mutant.STRUCTURE = mutantState["structure"]
                 mutant.PARENT = mutantState.get("parent", None)
                 mutant.NOTES = mutantState.get("notes", {})
+                mutant.FILES = mutantState.get("files", {})
                 designRound.MUTANTS[mutantName] = mutant
+                ## make paths un-relative
+                if self.RELATIVE_PATHS:
+                    if mutant.STRUCTURE:
+                        mutant.STRUCTURE = p.join(self.TOP_DIR, mutant.STRUCTURE)
+                    if len(mutant.FILES) > 0:
+                        for fileTag, filePath in mutant.FILES.items():
+                            mutant.FILES[fileTag] = p.join(self.TOP_DIR, filePath)
+
             self.DESIGN_ROUNDS.append(designRound)
+        self.RELATIVE_PATHS = False
 
 
     def migrate(self, outDir):
+
+        self.TOP_DIR = outDir
+        self.RELATIVE_PATHS = True  
+
         os.makedirs(outDir, exist_ok=True)
         for designRound in self.DESIGN_ROUNDS:
             roundDir = os.path.join(outDir, designRound.NAME)
@@ -168,10 +193,13 @@ class MutantZoo:
                 if mutant.STRUCTURE:
                     structureDest = p.join(roundDir, f"{mutantName}.pdb")
                     copy(mutant.STRUCTURE, structureDest)
-                    mutant.STRUCTURE = structureDest
+                    structureRelativePath = p.relpath(structureDest, self.TOP_DIR)
+                    mutant.STRUCTURE = structureRelativePath
                 elif mutant.SEQUENCE:
-                    outFasta = os.path.join(roundDir, f"{mutantName}.fasta")
-                    mutant.write_fastas(outFasta)  
+                    outFasta = p.join(roundDir, f"{mutantName}.fasta")
+                    mutant.write_fastas(outFasta)
+                    fastaRelativePath = p.relpath(outFasta, self.TOP_DIR)
+                    mutant.SEQUENCE = fastaRelativePath
                 elif len(mutant.FILES) > 0:
                     for fileTag, filePath in mutant.FILES.items():
                         if " " in fileTag:
@@ -179,6 +207,7 @@ class MutantZoo:
                         fileExt = p.splitext(filePath)[1]
                         fileDest = p.join(roundDir, f"{fileTag}_{mutantName}{fileExt}")
                         copy(filePath, fileDest)
-                        mutant.FILES[fileTag] = fileDest
+                        fileRelativePath = p.relpath(fileDest, self.TOP_DIR)
+                        mutant.FILES[fileTag] = fileRelativePath
 
         self.save_class_state(p.join(outDir, "zoo.yaml"))

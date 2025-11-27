@@ -9,7 +9,7 @@ class DesignRound:
     def __init__(self,
                  zoo: MutantZoo,                  # ← reference to the zoo
                  roundName: str,
-                 notes: dict | None = None,
+                 notes: dict = {},
                  inputMode: str = "pdbDir",
                  inputDir: str | None = None,
                  inputFile: str | None = None,
@@ -17,7 +17,7 @@ class DesignRound:
 
         self.ZOO = zoo
         self.NAME = roundName
-        self.NOTES = notes or {}
+        self.NOTES = notes.copy()
         self.INPUT_MODE = inputMode
         self.INPUT_DIR = inputDir
         self.INPUT_FILE = inputFile
@@ -45,7 +45,7 @@ class DesignRound:
                 mutant.SEQUENCE = utils.pdb_to_sequence(pdbFile)
                 mutant.STRUCTURE = pdbFile
                 mutant.PARENT = sharedParent
-                mutant.NOTES = notes
+                mutant.NOTES = notes.copy()
 
                 self.MUTANTS[mutantName] = mutant
 
